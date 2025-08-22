@@ -612,15 +612,18 @@ import numpy as np
 from PIL import Image
 from sklearn.cluster import KMeans
 import webcolors
+import openai
+import os
+
+# -------------------------
+# OpenAI Setup
+# -------------------------
+openai.api_key = os.getenv("OPENAI_API_KEY")  # 🔑 Set your key in environment
 
 # -------------------------
 # Helper Functions
 # -------------------------
-
 def closest_paint_name(requested_color):
-    """
-    Find the closest CSS3 color name for an RGB tuple.
-    """
     min_distance = float("inf")
     closest_name = None
     for name, hex_value in webcolors.CSS3_NAMES_TO_HEX.items():
@@ -633,15 +636,10 @@ def closest_paint_name(requested_color):
 
 
 def extract_palette(image_file, num_colors=5):
-    """
-    Extract color palette from an image.
-    Returns HEX codes + closest color names.
-    """
     image = Image.open(image_file).convert("RGB")
-    image = image.resize((150, 150))  # speed up clustering
+    image = image.resize((150, 150))
     pixels = np.array(image).reshape(-1, 3)
 
-    # ✅ Updated for sklearn >= 1.4 (n_init warning fix)
     kmeans = KMeans(n_clusters=num_colors, n_init=10, random_state=42).fit(pixels)
     palette = kmeans.cluster_centers_.astype(int)
 
@@ -652,20 +650,28 @@ def extract_palette(image_file, num_colors=5):
 
 
 def hex_to_rgb(hex_code):
-    """
-    Convert hex string (#RRGGBB) to RGB tuple.
-    """
     return webcolors.hex_to_rgb(hex_code)
+
+
+def ask_ai(prompt):
+    """Send a query to GPT and return response"""
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-4o-mini",  # or "gpt-3.5-turbo" if cheaper
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.7
+        )
+        return response.choices[0].message["content"]
+    except Exception as e:
+        return f"⚠️ Error: {e}"
 
 
 # -------------------------
 # Streamlit App
 # -------------------------
-
 st.set_page_config(page_title="🎨 PaletteGenie", layout="wide")
-
 st.title("🎨 PaletteGenie")
-st.subheader("Generate & Refine Color Palettes with AI")
+st.subheader("Generate, Improve & Refine Color Palettes with AI")
 
 mode = st.radio("Choose input mode:", ["Upload Image", "Enter HEX codes"])
 
@@ -692,6 +698,16 @@ if mode == "Upload Image":
                     )
                     st.write(f"{hex_code}")
                     st.caption(f"Closest: {name}")
+
+            # AI Feedback Box
+            st.subheader("🎨 Ask AI for Feedback")
+            user_question = st.text_area("Ask about this palette (e.g., 'What are the mistakes?' or 'How to improve it?')")
+
+            if st.button("Get Feedback"):
+                palette_text = ", ".join(hex_palette)
+                prompt = f"The extracted color palette is: {palette_text}. User asks: {user_question}. Provide design-focused suggestions."
+                ai_response = ask_ai(prompt)
+                st.success(ai_response)
 
         except Exception as e:
             st.error(f"Error extracting palette: {e}")
@@ -724,5 +740,14 @@ elif mode == "Enter HEX codes":
                         st.caption(f"Closest: {name}")
                 except ValueError:
                     st.error(f"Invalid HEX code: {hex_code}")
+
+            # AI Suggestions
+            if st.button("Suggest Combinations"):
+                palette_text = ", ".join(hex_codes)
+                prompt = f"The user has given this palette: {palette_text}. Suggest complementary, contrasting, and analogous color combinations for design."
+                ai_response = ask_ai(prompt)
+                st.info(ai_response)
+
         else:
             st.warning("⚠️ Please enter at least one valid HEX code.")
+
