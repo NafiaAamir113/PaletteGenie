@@ -222,6 +222,7 @@ def closest_paint_name(requested_hex):
 
     return closest_name
 
+# ✅ FIXED FUNCTION (avoids resp.choices[0].message issue)
 def gpt5_chat_answer(context_block, history, new_question, artist=None, image_bytes=None):
     system_prompt = "You are an art + fashion design mentor. Help the user with palettes, shades, and design advice."
     if artist:
@@ -251,7 +252,12 @@ def gpt5_chat_answer(context_block, history, new_question, artist=None, image_by
         max_tokens=600,
     )
 
-    content = resp.choices[0].message.get("content") if isinstance(resp.choices[0].message, dict) else resp.choices[0].message.content
+    # ✅ Correct parsing of response
+    if hasattr(resp.choices[0], "message"):
+        content = resp.choices[0].message.get("content")
+    else:
+        content = resp.choices[0].delta.get("content", "")
+
     return content
 
 def render_palette_boxes(hex_list):
@@ -379,6 +385,3 @@ if hex_palette or uploaded_image_bytes:
 
 else:
     st.info("👉 Upload an image OR enter your own HEX colors to start exploring palettes with GPT-5.")
-
-
-
