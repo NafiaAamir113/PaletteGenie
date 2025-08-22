@@ -80,7 +80,7 @@
 
 
 
-import streamlit as st
+import streamlit as st 
 import os, io
 from colorthief import ColorThief
 from PIL import Image
@@ -97,7 +97,7 @@ st.title("🎨 PaletteGenie (GPT-5) — Palette + Shade Ideas + Art Q&A")
 # ----------------------------
 AIML_BASE_URL = "https://api.aimlapi.com/v1"
 TEXT_MODEL = "gpt-5-chat-latest"
-AIML_API_KEY = st.secrets["AIML_API_KEY"]  # stored safely in Streamlit Secrets
+AIML_API_KEY = st.secrets["AIML_API_KEY"]  # safely stored in Streamlit Secrets
 
 client = OpenAI(api_key=AIML_API_KEY, base_url=AIML_BASE_URL)
 
@@ -117,7 +117,7 @@ def gpt5_chat_answer(context_block, history, new_question):
         {"role": "system", "content": (
             "You are an art + fashion design mentor. "
             "Help the user create new color shade combinations, palettes, and provide art suggestions. "
-            "Base your answers on the extracted palette but also propose new shade variations, tints, tones, and blends."
+            "Base your answers on the provided palette but also propose new shade variations, tints, tones, and blends."
         )},
         {"role": "user", "content": context_block},
     ] + history + [{"role": "user", "content": new_question}]
@@ -144,22 +144,33 @@ def render_palette_boxes(hex_list):
             )
 
 # ------------------ UI ------------------
-uploaded = st.file_uploader("Upload a drawing / fabric / artwork (JPG/PNG)", type=["jpg", "jpeg", "png"])
+st.sidebar.header("🎨 Palette Options")
+mode = st.sidebar.radio("Choose Input Mode:", ["Upload Image", "Enter HEX Colors"])
 
-if uploaded:
-    image = Image.open(uploaded).convert("RGB")
-    st.image(image, caption="Your Uploaded Artwork", width=300)
+hex_palette = []
 
-    # Extract palette
-    with st.spinner("🎨 Extracting main palette..."):
-        hex_palette = extract_palette(uploaded.getvalue())
-    st.subheader("Extracted Palette")
-    render_palette_boxes(hex_palette)
+if mode == "Upload Image":
+    uploaded = st.file_uploader("Upload a drawing / fabric / artwork (JPG/PNG)", type=["jpg", "jpeg", "png"])
+    if uploaded:
+        image = Image.open(uploaded).convert("RGB")
+        st.image(image, caption="Your Uploaded Artwork", width=300)
 
-    # Build context for GPT
-    context_block = f"EXTRACTED_PALETTE={hex_palette}"
+        with st.spinner("🎨 Extracting main palette..."):
+            hex_palette = extract_palette(uploaded.getvalue())
+        st.subheader("Extracted Palette")
+        render_palette_boxes(hex_palette)
 
-    # ------------- Chat Section -------------
+elif mode == "Enter HEX Colors":
+    user_colors = st.text_input("Enter HEX colors (comma-separated, e.g. #FF5733, #33FFCE, #112233)")
+    if user_colors:
+        hex_palette = [c.strip() for c in user_colors.split(",") if c.strip()]
+        st.subheader("Your Custom Palette")
+        render_palette_boxes(hex_palette)
+
+# ------------------ Chat Section ------------------
+if hex_palette:
+    context_block = f"PALETTE={hex_palette}"
+
     st.subheader("💬 Chat with GPT-5 about Colors & Design")
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
@@ -184,5 +195,5 @@ if uploaded:
             st.markdown(answer)
 
 else:
-    st.info("Upload your artwork to extract colors and explore shade ideas with GPT-5.")
+    st.info("👉 Upload an image OR enter your own HEX colors to start exploring palettes with GPT-5.")
 
