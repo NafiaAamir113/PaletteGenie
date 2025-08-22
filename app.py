@@ -607,7 +607,6 @@
 # else:
 #     st.info("👉 Upload an image OR enter your own HEX colors to start exploring palettes with GPT-5.")
 
-
 import streamlit as st
 import requests
 from colorthief import ColorThief
@@ -628,14 +627,22 @@ def rgb_to_hex(rgb):
     return '#%02x%02x%02x' % rgb
 
 def closest_paint_name(requested_color):
-    min_colors = {}
-    for hex_value, name in webcolors.CSS3_HEX_TO_NAMES.items():
-        r_c, g_c, b_c = webcolors.hex_to_rgb(hex_value)
-        rd = (r_c - requested_color[0]) ** 2
-        gd = (g_c - requested_color[1]) ** 2
-        bd = (b_c - requested_color[2]) ** 2
-        min_colors[(rd + gd + bd)] = name
-    return min_colors[min(min_colors.keys())]
+    try:
+        # Convert RGB to HEX
+        requested_hex = rgb_to_hex(requested_color)
+        # Try to get exact CSS3 name
+        return webcolors.hex_to_name(requested_hex, spec="css3")
+    except ValueError:
+        # If not exact, find the closest by Euclidean distance
+        min_diff = float("inf")
+        closest_name = None
+        for name, hex_value in webcolors.CSS3_NAMES_TO_HEX.items():
+            r_c, g_c, b_c = webcolors.hex_to_rgb(hex_value)
+            diff = (r_c - requested_color[0]) ** 2 + (g_c - requested_color[1]) ** 2 + (b_c - requested_color[2]) ** 2
+            if diff < min_diff:
+                min_diff = diff
+                closest_name = name
+        return closest_name
 
 def extract_palette(image_file, num_colors=6):
     color_thief = ColorThief(image_file)
@@ -680,7 +687,7 @@ if mode == "Upload Image":
     uploaded_file = st.file_uploader("Upload an image", type=["png", "jpg", "jpeg"])
     if uploaded_file:
         image = Image.open(uploaded_file)
-        st.image(image, caption="Uploaded Image", use_column_width=True)
+        st.image(image, caption="Uploaded Image", use_container_width=True)  # ✅ fixed deprecation
 
         # Extract Palette
         hex_palette, named_palette = extract_palette(uploaded_file)
@@ -748,5 +755,3 @@ for msg in st.session_state.chat_history:
         st.markdown(f"**🧑 You:** {msg['content']}")
     else:
         st.markdown(f"**🤖 PaletteGenie:** {msg['content']}")
-
-
