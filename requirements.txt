@@ -5,4 +5,6 @@ colorthief
 pillow
 python-dotenv
 requests
+webcolors
+
 
