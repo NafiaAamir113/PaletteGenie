@@ -612,7 +612,6 @@ import numpy as np
 from PIL import Image
 from sklearn.cluster import KMeans
 import webcolors
-import io
 
 # -------------------------
 # Helper Functions
@@ -622,26 +621,28 @@ def closest_paint_name(requested_color):
     """
     Find the closest CSS3 color name for an RGB tuple.
     """
-    min_colors = {}
+    min_distance = float("inf")
+    closest_name = None
     for name, hex_value in webcolors.CSS3_NAMES_TO_HEX.items():
         r_c, g_c, b_c = webcolors.hex_to_rgb(hex_value)
-        rd = (r_c - requested_color[0]) ** 2
-        gd = (g_c - requested_color[1]) ** 2
-        bd = (b_c - requested_color[2]) ** 2
-        min_colors[(rd + gd + bd)] = name
-    return min_colors[min(min_colors.keys())]
+        distance = (r_c - requested_color[0]) ** 2 + (g_c - requested_color[1]) ** 2 + (b_c - requested_color[2]) ** 2
+        if distance < min_distance:
+            min_distance = distance
+            closest_name = name
+    return closest_name
+
 
 def extract_palette(image_file, num_colors=5):
     """
     Extract color palette from an image.
     Returns HEX codes + closest color names.
     """
-    image = Image.open(image_file)
-    image = image.convert("RGB")
-    image = image.resize((150, 150))  # reduce size for faster clustering
+    image = Image.open(image_file).convert("RGB")
+    image = image.resize((150, 150))  # speed up clustering
     pixels = np.array(image).reshape(-1, 3)
 
-    kmeans = KMeans(n_clusters=num_colors, random_state=42).fit(pixels)
+    # ✅ Updated for sklearn >= 1.4 (n_init warning fix)
+    kmeans = KMeans(n_clusters=num_colors, n_init=10, random_state=42).fit(pixels)
     palette = kmeans.cluster_centers_.astype(int)
 
     hex_palette = [webcolors.rgb_to_hex(tuple(color)) for color in palette]
@@ -649,11 +650,13 @@ def extract_palette(image_file, num_colors=5):
 
     return hex_palette, named_palette
 
+
 def hex_to_rgb(hex_code):
     """
     Convert hex string (#RRGGBB) to RGB tuple.
     """
     return webcolors.hex_to_rgb(hex_code)
+
 
 # -------------------------
 # Streamlit App
@@ -669,7 +672,7 @@ mode = st.radio("Choose input mode:", ["Upload Image", "Enter HEX codes"])
 if mode == "Upload Image":
     uploaded_file = st.file_uploader("Upload an image", type=["png", "jpg", "jpeg"])
     if uploaded_file:
-        st.image(uploaded_file, caption="Uploaded Image", use_column_width=True)
+        st.image(uploaded_file, caption="Uploaded Image", use_container_width=True)
 
         try:
             hex_palette, named_palette = extract_palette(uploaded_file, num_colors=5)
@@ -699,25 +702,27 @@ elif mode == "Enter HEX codes":
 
     if user_input:
         hex_codes = [c.strip() for c in user_input.split(",") if c.strip().startswith("#")]
-        st.subheader("Custom Palette")
+        if hex_codes:
+            st.subheader("Custom Palette")
 
-        cols = st.columns(len(hex_codes))
-        for i, hex_code in enumerate(hex_codes):
-            try:
-                rgb = hex_to_rgb(hex_code)
-                name = closest_paint_name(rgb)
-                with cols[i]:
-                    st.markdown(
-                        f"""
-                        <div style='background-color:{hex_code};
-                                    width:100px;
-                                    height:100px;
-                                    border-radius:10px;'></div>
-                        """,
-                        unsafe_allow_html=True,
-                    )
-                    st.write(f"{hex_code}")
-                    st.caption(f"Closest: {name}")
-            except ValueError:
-                st.error(f"Invalid HEX code: {hex_code}")
-
+            cols = st.columns(len(hex_codes))
+            for i, hex_code in enumerate(hex_codes):
+                try:
+                    rgb = hex_to_rgb(hex_code)
+                    name = closest_paint_name(rgb)
+                    with cols[i]:
+                        st.markdown(
+                            f"""
+                            <div style='background-color:{hex_code};
+                                        width:100px;
+                                        height:100px;
+                                        border-radius:10px;'></div>
+                            """,
+                            unsafe_allow_html=True,
+                        )
+                        st.write(f"{hex_code}")
+                        st.caption(f"Closest: {name}")
+                except ValueError:
+                    st.error(f"Invalid HEX code: {hex_code}")
+        else:
+            st.warning("⚠️ Please enter at least one valid HEX code.")
