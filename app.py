@@ -1,103 +1,22 @@
 # import streamlit as st
-# import matplotlib.pyplot as plt
-# import matplotlib.patches as patches
-# from openai import OpenAI
-# import json
-# import os
-
-# # ----------------------------
-# # Setup AIML API Client
-# # ----------------------------
-# AIML_BASE_URL = "https://api.aimlapi.com/v1"
-# TEXT_MODEL = "gpt-5-chat-latest"   # GPT-5 for text/Q&A
-# VISION_MODEL = "gpt-4o"            # optional, if you add image features
-
-# # Load API key from Streamlit secrets
-# AIML_API_KEY = st.secrets["AIML_API_KEY"]
-
-# # Initialize the client
-# client = OpenAI(api_key=AIML_API_KEY, base_url=AIML_BASE_URL)
-
-# # ----------------------------
-# # Streamlit UI
-# # ----------------------------
-# st.set_page_config(page_title="🎨 PaletteGenie", layout="centered")
-# st.title("🎨 PaletteGenie – AI Color Palette Generator")
-# st.write("Turn ideas into beautiful color palettes with GPT-5 ✨")
-
-# # User input
-# base_color = st.color_picker("Pick a base color", "#3498db")
-# theme = st.text_input("Or describe a theme (e.g. 'summer pastel mood')")
-
-# # Generate button
-# if st.button("Generate Palette"):
-#     with st.spinner("🎨 Mixing colors with GPT-5..."):
-#         prompt = f"""
-#         You are a professional color designer.
-#         Based on the base color {base_color} and the theme '{theme}',
-#         suggest 5 harmonious HEX color codes.
-#         Output strictly in JSON array with this format:
-#         [
-#           {{"hex": "#RRGGBB", "reason": "short explanation"}}
-#         ]
-#         """
-
-#         try:
-#             response = client.chat.completions.create(
-#                 model=TEXT_MODEL,
-#                 messages=[{"role": "user", "content": prompt}],
-#                 temperature=0.7
-#             )
-#             content = response.choices[0].message.content.strip()
-#             palette = json.loads(content)
-#         except Exception as e:
-#             st.error(f"⚠️ Error: {e}")
-#             palette = []
-
-#         # ----------------------------
-#         # Display palette
-#         # ----------------------------
-#         if palette:
-#             st.subheader("✨ Generated Palette")
-
-#             fig, ax = plt.subplots(1, figsize=(10, 2))
-#             ax.axis("off")
-
-#             for i, color in enumerate(palette):
-#                 rect = patches.Rectangle((i, 0), 1, 1, facecolor=color["hex"])
-#                 ax.add_patch(rect)
-#                 ax.text(i + 0.5, -0.2, color["hex"], ha="center", fontsize=9)
-
-#             plt.xlim(0, len(palette))
-#             plt.ylim(0, 1)
-#             st.pyplot(fig)
-
-#             st.subheader("💡 Why these colors?")
-#             for c in palette:
-#                 st.markdown(f"- **{c['hex']}** → {c['reason']}")
-#         else:
-#             st.error("❌ Could not generate palette. Try again.")
-
-# # SECOND CODE.
-
-# import streamlit as st 
-# import os, io
+# import os, io, hashlib, base64
 # from colorthief import ColorThief
 # from PIL import Image
 # from openai import OpenAI
+# import webcolors
 
 # # ----------------------------
 # # Streamlit Page Config
 # # ----------------------------
-# st.set_page_config(page_title="PaletteGenie", page_icon="🎨", layout="wide")
-# st.title("🎨 PaletteGenie (GPT-5) — Palette + Shade Ideas + Art Q&A")
+# st.set_page_config(page_title="PaletteGenie+", page_icon="🎨", layout="wide")
+# st.title("🎨 PaletteGenie+ (GPT-5) — Art Mentor, Palette, & Style Guide")
 
 # # ----------------------------
 # # Setup AIML API Client
 # # ----------------------------
 # AIML_BASE_URL = "https://api.aimlapi.com/v1"
 # TEXT_MODEL = "gpt-5-chat-latest"
-# AIML_API_KEY = st.secrets["AIML_API_KEY"]  # safely stored in Streamlit Secrets
+# AIML_API_KEY = st.secrets["AIML_API_KEY"]
 
 # client = OpenAI(api_key=AIML_API_KEY, base_url=AIML_BASE_URL)
 
@@ -106,29 +25,66 @@
 #     r, g, b = rgb
 #     return f"#{r:02x}{g:02x}{b:02x}"
 
+# def hex_to_rgb(hex_color: str):
+#     hex_color = hex_color.lstrip('#')
+#     return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+
 # def extract_palette(img_bytes: bytes, n_colors: int = 6):
 #     bio = io.BytesIO(img_bytes)
 #     ct = ColorThief(bio)
 #     palette = ct.get_palette(color_count=n_colors)
 #     return [rgb_to_hex(c) for c in palette]
 
-# def gpt5_chat_answer(context_block, history, new_question):
-#     messages = [
-#         {"role": "system", "content": (
-#             "You are an art + fashion design mentor. "
-#             "Help the user create new color shade combinations, palettes, and provide art suggestions. "
-#             "Base your answers on the provided palette but also propose new shade variations, tints, tones, and blends."
-#         )},
-#         {"role": "user", "content": context_block},
-#     ] + history + [{"role": "user", "content": new_question}]
+# def closest_paint_name(requested_hex):
+#     css3_names = {name: webcolors.name_to_hex(name) for name in webcolors.CSS3_NAMES_TO_HEX.keys()}
+#     requested_rgb = webcolors.hex_to_rgb(requested_hex)
+#     min_diff = float("inf")
+#     closest_name = None
 
+#     for name, hex_val in css3_names.items():
+#         r, g, b = webcolors.hex_to_rgb(hex_val)
+#         diff = (r - requested_rgb[0]) ** 2 + (g - requested_rgb[1]) ** 2 + (b - requested_rgb[2]) ** 2
+#         if diff < min_diff:
+#             min_diff = diff
+#             closest_name = name
+
+#     return closest_name
+
+# def gpt5_chat_answer(context_block, history, new_question, artist=None, image_bytes=None):
+#     system_prompt = "You are an art + fashion design mentor. Help the user with palettes, shades, and design advice."
+#     if artist:
+#         system_prompt += f" Answer in the style and philosophy of {artist}."
+
+#     # ✅ Build message list
+#     messages = [
+#         {"role": "system", "content": system_prompt},
+#         {"role": "user", "content": context_block},
+#     ] + history
+
+#     # ✅ Handle multimodal case properly
+#     if image_bytes:
+#         img_b64 = base64.b64encode(image_bytes).decode("utf-8")
+#         messages.append({
+#             "role": "user",
+#             "content": [
+#                 {"type": "text", "text": new_question},
+#                 {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img_b64}"}}
+#             ]
+#         })
+#     else:
+#         messages.append({"role": "user", "content": new_question})
+
+#     # ✅ Call API
 #     resp = client.chat.completions.create(
 #         model=TEXT_MODEL,
 #         messages=messages,
 #         temperature=0.8,
 #         max_tokens=600,
 #     )
-#     return resp.choices[0].message.content
+
+#     # Some SDKs return dict-style, others object-style
+#     content = resp.choices[0].message.get("content") if isinstance(resp.choices[0].message, dict) else resp.choices[0].message.content
+#     return content
 
 # def render_palette_boxes(hex_list):
 #     cols = st.columns(len(hex_list))
@@ -144,19 +100,27 @@
 #             )
 
 # # ------------------ UI ------------------
-# st.sidebar.header("🎨 Palette Options")
+# st.sidebar.header("🎨 Features")
 # mode = st.sidebar.radio("Choose Input Mode:", ["Upload Image", "Enter HEX Colors"])
 
-# hex_palette = []
+# artist = st.sidebar.selectbox(
+#     "👩‍🎨 Choose an Artist Mentor:",
+#     ["None", "Picasso", "Van Gogh", "Frida Kahlo", "Monet", "Salvador Dalí"]
+# )
 
+# hex_palette = []
+# uploaded_image_bytes = None
+
+# # Upload or enter colors
 # if mode == "Upload Image":
-#     uploaded = st.file_uploader("Upload a drawing / fabric / artwork (JPG/PNG)", type=["jpg", "jpeg", "png"])
+#     uploaded = st.file_uploader("Upload an artwork (JPG/PNG)", type=["jpg", "jpeg", "png"])
 #     if uploaded:
 #         image = Image.open(uploaded).convert("RGB")
 #         st.image(image, caption="Your Uploaded Artwork", width=300)
+#         uploaded_image_bytes = uploaded.getvalue()
 
 #         with st.spinner("🎨 Extracting main palette..."):
-#             hex_palette = extract_palette(uploaded.getvalue())
+#             hex_palette = extract_palette(uploaded_image_bytes)
 #         st.subheader("Extracted Palette")
 #         render_palette_boxes(hex_palette)
 
@@ -168,10 +132,10 @@
 #         render_palette_boxes(hex_palette)
 
 # # ------------------ Chat Section ------------------
-# if hex_palette:
-#     context_block = f"PALETTE={hex_palette}"
+# if hex_palette or uploaded_image_bytes:
+#     context_block = f"PALETTE={hex_palette}" if hex_palette else "User uploaded an artwork."
 
-#     st.subheader("💬 Chat with GPT-5 about Colors & Design")
+#     st.subheader("💬 Chat with GPT-5 about Art, Colors & Design")
 #     if "chat_history" not in st.session_state:
 #         st.session_state.chat_history = []
 
@@ -179,12 +143,19 @@
 #         with st.chat_message(msg["role"]):
 #             st.markdown(msg["content"])
 
-#     user_msg = st.chat_input("Ask about new shades, color mixing, outfit combos, etc.")
+#     user_msg = st.chat_input("Ask for critique, style advice, or new shades...")
 #     if user_msg:
 #         with st.chat_message("user"):
 #             st.markdown(user_msg)
+
 #         try:
-#             answer = gpt5_chat_answer(context_block, st.session_state.chat_history, user_msg)
+#             answer = gpt5_chat_answer(
+#                 context_block,
+#                 st.session_state.chat_history,
+#                 user_msg,
+#                 artist=artist if artist != "None" else None,
+#                 image_bytes=uploaded_image_bytes
+#             )
 #         except Exception as e:
 #             answer = f"⚠️ Sorry, I couldn't get an answer: {e}"
 
@@ -196,6 +167,8 @@
 
 # else:
 #     st.info("👉 Upload an image OR enter your own HEX colors to start exploring palettes with GPT-5.")
+
+
 
 import streamlit as st
 import os, io, hashlib, base64
@@ -252,15 +225,13 @@ def closest_paint_name(requested_hex):
 def gpt5_chat_answer(context_block, history, new_question, artist=None, image_bytes=None):
     system_prompt = "You are an art + fashion design mentor. Help the user with palettes, shades, and design advice."
     if artist:
-        system_prompt += f" Answer in the style and philosophy of {artist}."
+        system_prompt += f" Explain how {artist} would apply these colors in real compositions and why."
 
-    # ✅ Build message list
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": context_block},
     ] + history
 
-    # ✅ Handle multimodal case properly
     if image_bytes:
         img_b64 = base64.b64encode(image_bytes).decode("utf-8")
         messages.append({
@@ -273,7 +244,6 @@ def gpt5_chat_answer(context_block, history, new_question, artist=None, image_by
     else:
         messages.append({"role": "user", "content": new_question})
 
-    # ✅ Call API
     resp = client.chat.completions.create(
         model=TEXT_MODEL,
         messages=messages,
@@ -281,7 +251,6 @@ def gpt5_chat_answer(context_block, history, new_question, artist=None, image_by
         max_tokens=600,
     )
 
-    # Some SDKs return dict-style, others object-style
     content = resp.choices[0].message.get("content") if isinstance(resp.choices[0].message, dict) else resp.choices[0].message.content
     return content
 
@@ -298,6 +267,33 @@ def render_palette_boxes(hex_list):
                 unsafe_allow_html=True
             )
 
+# ---------------- NEW FEATURE: Mockup Preview ----------------
+def render_mockup(hex_list):
+    if not hex_list: return
+    st.markdown("### 🖼️ Sample Mockup Preview")
+    mockup = f"""
+    <div style="border-radius:12px; padding:20px; background:{hex_list[0]}; color:{hex_list[-1]}; font-family:sans-serif; margin-top:10px;">
+        <h2 style="margin:0;">PaletteGenie+ Demo Card</h2>
+        <p style="margin:0;">Primary: {hex_list[0]} | Accent: {hex_list[1]} | Neutral: {hex_list[-1]}</p>
+        <button style="margin-top:10px; padding:6px 12px; background:{hex_list[1]}; border:none; border-radius:6px; color:white;">Action</button>
+    </div>
+    """
+    st.markdown(mockup, unsafe_allow_html=True)
+
+# ---------------- NEW FEATURE: Refinement ----------------
+if "refined_palette" not in st.session_state:
+    st.session_state.refined_palette = None
+
+def refine_palette_request(user_msg, palette):
+    refine_prompt = f"The current palette is {palette}. User wants: {user_msg}. Suggest a new refined palette with HEX codes, and explain why."
+    resp = gpt5_chat_answer(
+        f"REFINE_PALETTE={palette}",
+        st.session_state.chat_history,
+        refine_prompt,
+        artist=None
+    )
+    return resp
+
 # ------------------ UI ------------------
 st.sidebar.header("🎨 Features")
 mode = st.sidebar.radio("Choose Input Mode:", ["Upload Image", "Enter HEX Colors"])
@@ -305,6 +301,11 @@ mode = st.sidebar.radio("Choose Input Mode:", ["Upload Image", "Enter HEX Colors
 artist = st.sidebar.selectbox(
     "👩‍🎨 Choose an Artist Mentor:",
     ["None", "Picasso", "Van Gogh", "Frida Kahlo", "Monet", "Salvador Dalí"]
+)
+
+translation_mode = st.sidebar.selectbox(
+    "🌍 Translate Palette Into:",
+    ["None", "Music Mood", "Fashion Style", "Interior Design"]
 )
 
 hex_palette = []
@@ -322,6 +323,7 @@ if mode == "Upload Image":
             hex_palette = extract_palette(uploaded_image_bytes)
         st.subheader("Extracted Palette")
         render_palette_boxes(hex_palette)
+        render_mockup(hex_palette)
 
 elif mode == "Enter HEX Colors":
     user_colors = st.text_input("Enter HEX colors (comma-separated, e.g. #FF5733, #33FFCE, #112233)")
@@ -329,6 +331,14 @@ elif mode == "Enter HEX Colors":
         hex_palette = [c.strip() for c in user_colors.split(",") if c.strip()]
         st.subheader("Your Custom Palette")
         render_palette_boxes(hex_palette)
+        render_mockup(hex_palette)
+
+# ------------------ Cross-Domain Translator ------------------
+if translation_mode != "None" and hex_palette:
+    trans_prompt = f"Translate this palette {hex_palette} into {translation_mode}. Give a vivid, practical description."
+    translation = gpt5_chat_answer("PALETTE_TRANSLATION", [], trans_prompt)
+    st.subheader(f"🎭 Palette as {translation_mode}")
+    st.markdown(translation)
 
 # ------------------ Chat Section ------------------
 if hex_palette or uploaded_image_bytes:
@@ -342,19 +352,22 @@ if hex_palette or uploaded_image_bytes:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
-    user_msg = st.chat_input("Ask for critique, style advice, or new shades...")
+    user_msg = st.chat_input("Ask for critique, style advice, refinements, or new shades...")
     if user_msg:
         with st.chat_message("user"):
             st.markdown(user_msg)
 
         try:
-            answer = gpt5_chat_answer(
-                context_block,
-                st.session_state.chat_history,
-                user_msg,
-                artist=artist if artist != "None" else None,
-                image_bytes=uploaded_image_bytes
-            )
+            if "refine" in user_msg.lower() and hex_palette:
+                answer = refine_palette_request(user_msg, hex_palette)
+            else:
+                answer = gpt5_chat_answer(
+                    context_block,
+                    st.session_state.chat_history,
+                    user_msg,
+                    artist=artist if artist != "None" else None,
+                    image_bytes=uploaded_image_bytes
+                )
         except Exception as e:
             answer = f"⚠️ Sorry, I couldn't get an answer: {e}"
 
@@ -366,5 +379,6 @@ if hex_palette or uploaded_image_bytes:
 
 else:
     st.info("👉 Upload an image OR enter your own HEX colors to start exploring palettes with GPT-5.")
+
 
 
