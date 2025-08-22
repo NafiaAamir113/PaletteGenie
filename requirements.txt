@@ -3,3 +3,6 @@ openai
 matplotlib
 colorthief
 pillow
+python-dotenv
+requests
+
