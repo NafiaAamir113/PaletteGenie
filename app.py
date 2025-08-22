@@ -78,10 +78,130 @@
 #         else:
 #             st.error("❌ Could not generate palette. Try again.")
 
+# # SECOND CODE.
+
+# import streamlit as st 
+# import os, io
+# from colorthief import ColorThief
+# from PIL import Image
+# from openai import OpenAI
+
+# # ----------------------------
+# # Streamlit Page Config
+# # ----------------------------
+# st.set_page_config(page_title="PaletteGenie", page_icon="🎨", layout="wide")
+# st.title("🎨 PaletteGenie (GPT-5) — Palette + Shade Ideas + Art Q&A")
+
+# # ----------------------------
+# # Setup AIML API Client
+# # ----------------------------
+# AIML_BASE_URL = "https://api.aimlapi.com/v1"
+# TEXT_MODEL = "gpt-5-chat-latest"
+# AIML_API_KEY = st.secrets["AIML_API_KEY"]  # safely stored in Streamlit Secrets
+
+# client = OpenAI(api_key=AIML_API_KEY, base_url=AIML_BASE_URL)
+
+# # ------------------ HELPERS ------------------
+# def rgb_to_hex(rgb):
+#     r, g, b = rgb
+#     return f"#{r:02x}{g:02x}{b:02x}"
+
+# def extract_palette(img_bytes: bytes, n_colors: int = 6):
+#     bio = io.BytesIO(img_bytes)
+#     ct = ColorThief(bio)
+#     palette = ct.get_palette(color_count=n_colors)
+#     return [rgb_to_hex(c) for c in palette]
+
+# def gpt5_chat_answer(context_block, history, new_question):
+#     messages = [
+#         {"role": "system", "content": (
+#             "You are an art + fashion design mentor. "
+#             "Help the user create new color shade combinations, palettes, and provide art suggestions. "
+#             "Base your answers on the provided palette but also propose new shade variations, tints, tones, and blends."
+#         )},
+#         {"role": "user", "content": context_block},
+#     ] + history + [{"role": "user", "content": new_question}]
+
+#     resp = client.chat.completions.create(
+#         model=TEXT_MODEL,
+#         messages=messages,
+#         temperature=0.8,
+#         max_tokens=600,
+#     )
+#     return resp.choices[0].message.content
+
+# def render_palette_boxes(hex_list):
+#     cols = st.columns(len(hex_list))
+#     for i, h in enumerate(hex_list):
+#         with cols[i]:
+#             st.markdown(
+#                 f"""
+#                 <div style="border-radius:12px; height:80px; width:100%; 
+#                 border:1px solid #ddd; background:{h};"></div>
+#                 <div style="font-family:monospace; margin-top:6px; text-align:center;">{h}</div>
+#                 """,
+#                 unsafe_allow_html=True
+#             )
+
+# # ------------------ UI ------------------
+# st.sidebar.header("🎨 Palette Options")
+# mode = st.sidebar.radio("Choose Input Mode:", ["Upload Image", "Enter HEX Colors"])
+
+# hex_palette = []
+
+# if mode == "Upload Image":
+#     uploaded = st.file_uploader("Upload a drawing / fabric / artwork (JPG/PNG)", type=["jpg", "jpeg", "png"])
+#     if uploaded:
+#         image = Image.open(uploaded).convert("RGB")
+#         st.image(image, caption="Your Uploaded Artwork", width=300)
+
+#         with st.spinner("🎨 Extracting main palette..."):
+#             hex_palette = extract_palette(uploaded.getvalue())
+#         st.subheader("Extracted Palette")
+#         render_palette_boxes(hex_palette)
+
+# elif mode == "Enter HEX Colors":
+#     user_colors = st.text_input("Enter HEX colors (comma-separated, e.g. #FF5733, #33FFCE, #112233)")
+#     if user_colors:
+#         hex_palette = [c.strip() for c in user_colors.split(",") if c.strip()]
+#         st.subheader("Your Custom Palette")
+#         render_palette_boxes(hex_palette)
+
+# # ------------------ Chat Section ------------------
+# if hex_palette:
+#     context_block = f"PALETTE={hex_palette}"
+
+#     st.subheader("💬 Chat with GPT-5 about Colors & Design")
+#     if "chat_history" not in st.session_state:
+#         st.session_state.chat_history = []
+
+#     for msg in st.session_state.chat_history:
+#         with st.chat_message(msg["role"]):
+#             st.markdown(msg["content"])
+
+#     user_msg = st.chat_input("Ask about new shades, color mixing, outfit combos, etc.")
+#     if user_msg:
+#         with st.chat_message("user"):
+#             st.markdown(user_msg)
+#         try:
+#             answer = gpt5_chat_answer(context_block, st.session_state.chat_history, user_msg)
+#         except Exception as e:
+#             answer = f"⚠️ Sorry, I couldn't get an answer: {e}"
+
+#         st.session_state.chat_history.append({"role": "user", "content": user_msg})
+#         st.session_state.chat_history.append({"role": "assistant", "content": answer})
+
+#         with st.chat_message("assistant"):
+#             st.markdown(answer)
+
+# else:
+#     st.info("👉 Upload an image OR enter your own HEX colors to start exploring palettes with GPT-5.")
+
+
 
 
 import streamlit as st 
-import os, io
+import os, io, hashlib
 from colorthief import ColorThief
 from PIL import Image
 from openai import OpenAI
@@ -97,7 +217,7 @@ st.title("🎨 PaletteGenie (GPT-5) — Palette + Shade Ideas + Art Q&A")
 # ----------------------------
 AIML_BASE_URL = "https://api.aimlapi.com/v1"
 TEXT_MODEL = "gpt-5-chat-latest"
-AIML_API_KEY = st.secrets["AIML_API_KEY"]  # safely stored in Streamlit Secrets
+AIML_API_KEY = st.secrets["AIML_API_KEY"]
 
 client = OpenAI(api_key=AIML_API_KEY, base_url=AIML_BASE_URL)
 
@@ -106,13 +226,17 @@ def rgb_to_hex(rgb):
     r, g, b = rgb
     return f"#{r:02x}{g:02x}{b:02x}"
 
+@st.cache_data(show_spinner=False)
 def extract_palette(img_bytes: bytes, n_colors: int = 6):
+    """Cache palette extraction so same image doesn’t cause multiple API hits."""
     bio = io.BytesIO(img_bytes)
     ct = ColorThief(bio)
     palette = ct.get_palette(color_count=n_colors)
     return [rgb_to_hex(c) for c in palette]
 
+@st.cache_data(show_spinner=False)
 def gpt5_chat_answer(context_block, history, new_question):
+    """Cache GPT answers to avoid repeated API calls for the same query + palette."""
     messages = [
         {"role": "system", "content": (
             "You are an art + fashion design mentor. "
@@ -175,6 +299,7 @@ if hex_palette:
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
 
+    # Display chat history
     for msg in st.session_state.chat_history:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
@@ -183,11 +308,15 @@ if hex_palette:
     if user_msg:
         with st.chat_message("user"):
             st.markdown(user_msg)
+
         try:
+            # create cache key from palette + question
+            key = hashlib.sha256((str(hex_palette) + user_msg).encode()).hexdigest()
             answer = gpt5_chat_answer(context_block, st.session_state.chat_history, user_msg)
         except Exception as e:
             answer = f"⚠️ Sorry, I couldn't get an answer: {e}"
 
+        # update history
         st.session_state.chat_history.append({"role": "user", "content": user_msg})
         st.session_state.chat_history.append({"role": "assistant", "content": answer})
 
@@ -196,4 +325,6 @@ if hex_palette:
 
 else:
     st.info("👉 Upload an image OR enter your own HEX colors to start exploring palettes with GPT-5.")
+
+
 
