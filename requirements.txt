@@ -5,7 +5,7 @@ colorthief
 pillow
 python-dotenv
 requests
-webcolors
+webcolors==1.11.1
 scikit-learn
 numpy
 
