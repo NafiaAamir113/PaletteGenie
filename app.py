@@ -608,150 +608,116 @@
 #     st.info("👉 Upload an image OR enter your own HEX colors to start exploring palettes with GPT-5.")
 
 import streamlit as st
-import requests
-from colorthief import ColorThief
+import numpy as np
 from PIL import Image
-import io, os
+from sklearn.cluster import KMeans
 import webcolors
+import io
 
-# -------------------------------
-# Initialize Session State
-# -------------------------------
-if "chat_history" not in st.session_state:
-    st.session_state.chat_history = []
-
-# -------------------------------
+# -------------------------
 # Helper Functions
-# -------------------------------
-def rgb_to_hex(rgb):
-    return '#%02x%02x%02x' % rgb
+# -------------------------
 
 def closest_paint_name(requested_color):
-    try:
-        # Convert RGB to HEX
-        requested_hex = rgb_to_hex(requested_color)
-        # Try to get exact CSS3 name
-        return webcolors.hex_to_name(requested_hex, spec="css3")
-    except ValueError:
-        # If not exact, find the closest by Euclidean distance
-        min_diff = float("inf")
-        closest_name = None
-        for name, hex_value in webcolors.CSS3_NAMES_TO_HEX.items():
-            r_c, g_c, b_c = webcolors.hex_to_rgb(hex_value)
-            diff = (r_c - requested_color[0]) ** 2 + (g_c - requested_color[1]) ** 2 + (b_c - requested_color[2]) ** 2
-            if diff < min_diff:
-                min_diff = diff
-                closest_name = name
-        return closest_name
+    """
+    Find the closest CSS3 color name for an RGB tuple.
+    """
+    min_colors = {}
+    for name, hex_value in webcolors.CSS3_NAMES_TO_HEX.items():
+        r_c, g_c, b_c = webcolors.hex_to_rgb(hex_value)
+        rd = (r_c - requested_color[0]) ** 2
+        gd = (g_c - requested_color[1]) ** 2
+        bd = (b_c - requested_color[2]) ** 2
+        min_colors[(rd + gd + bd)] = name
+    return min_colors[min(min_colors.keys())]
 
-def extract_palette(image_file, num_colors=6):
-    color_thief = ColorThief(image_file)
-    palette = color_thief.get_palette(color_count=num_colors)
-    hex_palette = [rgb_to_hex(color) for color in palette]
-    named_palette = [closest_paint_name(color) for color in palette]
+def extract_palette(image_file, num_colors=5):
+    """
+    Extract color palette from an image.
+    Returns HEX codes + closest color names.
+    """
+    image = Image.open(image_file)
+    image = image.convert("RGB")
+    image = image.resize((150, 150))  # reduce size for faster clustering
+    pixels = np.array(image).reshape(-1, 3)
+
+    kmeans = KMeans(n_clusters=num_colors, random_state=42).fit(pixels)
+    palette = kmeans.cluster_centers_.astype(int)
+
+    hex_palette = [webcolors.rgb_to_hex(tuple(color)) for color in palette]
+    named_palette = [closest_paint_name(tuple(color)) for color in palette]
+
     return hex_palette, named_palette
 
-def get_gpt_response(prompt, api_key, model="gpt-5-chat-latest"):
-    url = "https://api.aimlapi.com/v1/chat/completions"
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {api_key}"
-    }
+def hex_to_rgb(hex_code):
+    """
+    Convert hex string (#RRGGBB) to RGB tuple.
+    """
+    return webcolors.hex_to_rgb(hex_code)
 
-    payload = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": "You are PaletteGenie, a color palette assistant."},
-            {"role": "user", "content": prompt}
-        ]
-    }
+# -------------------------
+# Streamlit App
+# -------------------------
 
-    response = requests.post(url, headers=headers, json=payload)
+st.set_page_config(page_title="🎨 PaletteGenie", layout="wide")
 
-    if response.status_code == 200:
-        return response.json()["choices"][0]["message"]["content"]
-    else:
-        return f"⚠️ API Error: {response.status_code} - {response.text}"
-
-# -------------------------------
-# Streamlit UI
-# -------------------------------
 st.title("🎨 PaletteGenie")
-st.write("Upload an image or input HEX codes to generate & refine color palettes.")
-
-api_key = st.secrets["AIML_API_KEY"]
+st.subheader("Generate & Refine Color Palettes with AI")
 
 mode = st.radio("Choose input mode:", ["Upload Image", "Enter HEX codes"])
 
 if mode == "Upload Image":
     uploaded_file = st.file_uploader("Upload an image", type=["png", "jpg", "jpeg"])
     if uploaded_file:
-        image = Image.open(uploaded_file)
-        st.image(image, caption="Uploaded Image", use_container_width=True)  # ✅ fixed deprecation
+        st.image(uploaded_file, caption="Uploaded Image", use_column_width=True)
 
-        # Extract Palette
-        hex_palette, named_palette = extract_palette(uploaded_file)
+        try:
+            hex_palette, named_palette = extract_palette(uploaded_file, num_colors=5)
 
-        st.subheader("🎨 Extracted Palette")
-        cols = st.columns(len(hex_palette))
-        for i, hex_code in enumerate(hex_palette):
-            with cols[i]:
-                st.color_picker(named_palette[i], hex_code, disabled=True)
+            st.subheader("Extracted Palette")
+            cols = st.columns(len(hex_palette))
+            for i, (hex_code, name) in enumerate(zip(hex_palette, named_palette)):
+                with cols[i]:
+                    st.markdown(
+                        f"""
+                        <div style='background-color:{hex_code};
+                                    width:100px;
+                                    height:100px;
+                                    border-radius:10px;'></div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
+                    st.write(f"{hex_code}")
+                    st.caption(f"Closest: {name}")
 
-        st.write("**Palette Names:**", ", ".join(named_palette))
-
-        # Ask GPT for suggestions
-        prompt = f"Suggest 3 color palette names and uses for this palette: {hex_palette} ({named_palette})."
-        gpt_response = get_gpt_response(prompt, api_key)
-        st.subheader("✨ PaletteGenie Suggestions")
-        st.write(gpt_response)
+        except Exception as e:
+            st.error(f"Error extracting palette: {e}")
 
 elif mode == "Enter HEX codes":
-    hex_input = st.text_area("Enter HEX codes separated by commas (e.g. #FF5733, #33FF57, #3357FF)")
-    if hex_input:
-        hex_palette = [code.strip() for code in hex_input.split(",")]
-        st.subheader("🎨 Custom Palette")
-        cols = st.columns(len(hex_palette))
-        for i, hex_code in enumerate(hex_palette):
-            with cols[i]:
-                st.color_picker(f"Color {i+1}", hex_code, disabled=True)
+    st.write("Enter HEX codes (comma separated, e.g. `#FF5733, #33FF57, #3357FF`):")
+    user_input = st.text_area("HEX Codes")
 
-        # Ask GPT
-        prompt = f"Suggest names, themes, and creative uses for this custom palette: {hex_palette}"
-        gpt_response = get_gpt_response(prompt, api_key)
-        st.subheader("✨ PaletteGenie Suggestions")
-        st.write(gpt_response)
+    if user_input:
+        hex_codes = [c.strip() for c in user_input.split(",") if c.strip().startswith("#")]
+        st.subheader("Custom Palette")
 
-# -------------------------------
-# Refinement Chat
-# -------------------------------
-st.subheader("💬 Refine Your Palette with AI")
+        cols = st.columns(len(hex_codes))
+        for i, hex_code in enumerate(hex_codes):
+            try:
+                rgb = hex_to_rgb(hex_code)
+                name = closest_paint_name(rgb)
+                with cols[i]:
+                    st.markdown(
+                        f"""
+                        <div style='background-color:{hex_code};
+                                    width:100px;
+                                    height:100px;
+                                    border-radius:10px;'></div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
+                    st.write(f"{hex_code}")
+                    st.caption(f"Closest: {name}")
+            except ValueError:
+                st.error(f"Invalid HEX code: {hex_code}")
 
-user_message = st.text_input("Type a refinement instruction (e.g., 'make it more pastel')")
-if st.button("Refine Palette") and user_message:
-    st.session_state.chat_history.append({"role": "user", "content": user_message})
-
-    # Send chat history to GPT
-    url = "https://api.aimlapi.com/v1/chat/completions"
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {api_key}"
-    }
-    payload = {
-        "model": "gpt-5-chat-latest",
-        "messages": [{"role": "system", "content": "You are PaletteGenie, a color palette refinement assistant."}] + st.session_state.chat_history
-    }
-    response = requests.post(url, headers=headers, json=payload)
-
-    if response.status_code == 200:
-        gpt_reply = response.json()["choices"][0]["message"]["content"]
-        st.session_state.chat_history.append({"role": "assistant", "content": gpt_reply})
-    else:
-        st.error(f"⚠️ API Error: {response.status_code} - {response.text}")
-
-# Display chat
-for msg in st.session_state.chat_history:
-    if msg["role"] == "user":
-        st.markdown(f"**🧑 You:** {msg['content']}")
-    else:
-        st.markdown(f"**🤖 PaletteGenie:** {msg['content']}")
