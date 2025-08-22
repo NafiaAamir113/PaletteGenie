@@ -197,7 +197,6 @@
 # else:
 #     st.info("👉 Upload an image OR enter your own HEX colors to start exploring palettes with GPT-5.")
 
-
 import streamlit as st
 import os, io, hashlib, base64
 from colorthief import ColorThief
@@ -255,25 +254,36 @@ def gpt5_chat_answer(context_block, history, new_question, artist=None, image_by
     if artist:
         system_prompt += f" Answer in the style and philosophy of {artist}."
 
+    # ✅ Build message list
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": context_block},
-    ] + history + [{"role": "user", "content": new_question}]
+    ] + history
 
+    # ✅ Handle multimodal case properly
     if image_bytes:
         img_b64 = base64.b64encode(image_bytes).decode("utf-8")
         messages.append({
             "role": "user",
-            "content": {"type": "image_url", "image_url": f"data:image/png;base64,{img_b64}"}
+            "content": [
+                {"type": "text", "text": new_question},
+                {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img_b64}"}}
+            ]
         })
+    else:
+        messages.append({"role": "user", "content": new_question})
 
+    # ✅ Call API
     resp = client.chat.completions.create(
         model=TEXT_MODEL,
         messages=messages,
         temperature=0.8,
         max_tokens=600,
     )
-    return resp.choices[0].message.content
+
+    # Some SDKs return dict-style, others object-style
+    content = resp.choices[0].message.get("content") if isinstance(resp.choices[0].message, dict) else resp.choices[0].message.content
+    return content
 
 def render_palette_boxes(hex_list):
     cols = st.columns(len(hex_list))
@@ -356,4 +366,5 @@ if hex_palette or uploaded_image_bytes:
 
 else:
     st.info("👉 Upload an image OR enter your own HEX colors to start exploring palettes with GPT-5.")
+
 
