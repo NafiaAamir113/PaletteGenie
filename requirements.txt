@@ -6,5 +6,8 @@ pillow
 python-dotenv
 requests
 webcolors
+scikit-learn
+numpy
+
 
 
